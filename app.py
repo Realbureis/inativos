@@ -18,7 +18,18 @@ uploaded_file = st.file_uploader("Arraste e solte o arquivo CSV aqui", type=["cs
 
 if uploaded_file is not None:
     try:
-        df = pd.read_csv(uploaded_file)
+        # Tenta ler primeiro com ponto e vírgula (padrão de exportação Excel/BR)
+        try:
+            df = pd.read_csv(uploaded_file, sep=';')
+            # Validação simples se leu correto ou se pegou apenas 1 coluna
+            if df.shape[1] <= 1:
+                raise ValueError
+        except Exception:
+            # Se falhar ou vier mal estruturado, volta para a vírgula padrão
+            uploaded_file.seek(0)  # Reseta o ponteiro do arquivo
+            df = pd.read_csv(uploaded_file, sep=',')
+            
+        # Garante a conversão da coluna de data
         df['Data'] = pd.to_datetime(df['Data'])
         
         # Data de referência (Hoje)
