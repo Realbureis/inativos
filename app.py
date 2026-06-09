@@ -14,40 +14,45 @@ st.markdown("Arraste o relatório de 1 mês para disparar apenas para os cliente
 WEBHOOK_21_DIAS = "https://n8n.corcaqui.com.br/webhook/seu_gatilho_21_dias"
 WEBHOOK_28_DIAS = "https://n8n.corcaqui.com.br/webhook/seu_gatilho_28_dias"
 
-uploaded_file = st.file_uploader("Arraste e solte o arquivo CSV aqui", type=["csv"])
+# Aceita tanto extensão .csv quanto .xlsx para garantir
+uploaded_file = st.file_uploader("Arraste e solte o arquivo aqui (Aceita CSV ou Excel)", type=["csv", "xlsx"])
 
 if uploaded_file is not None:
     try:
-        # TENTATIVA AUTOMÁTICA DE LEITURA (Encoding + Separadores)
         df = None
-        # Lista de combinações comuns para testar (Separador, Encoding)
-        combinacoes = [
-            (';', 'utf-8-sig'), # UTF-8 com assinatura BOM (Excel comum)
-            (';', 'iso-8859-1'), # Padrão Windows/América Latina
-            (',', 'utf-8'),
-            (';', 'utf-8'),
-            (',', 'iso-8859-1')
-        ]
         
-        for sep, enc in combinacoes:
-            try:
-                uploaded_file.seek(0) # Reseta o arquivo para o início a cada tentativa
-                # on_bad_lines='skip' ignora linhas de rodapé ou sujeiras que quebram o CSV
-                temp_df = pd.read_csv(uploaded_file, sep=sep, encoding=enc, on_bad_lines='skip')
-                
-                # Validação: o arquivo precisa ter mais de 1 coluna para ser considerado válido
-                if temp_df.shape[1] > 1 and 'Data' in temp_df.columns:
-                    df = temp_df
-                    break
-            except Exception:
-                continue
+        # 1️⃣ TENTATIVA: Ler como arquivo Excel (Trata o erro do seu print)
+        try:
+            uploaded_file.seek(0)
+            df = pd.read_excel(uploaded_file)
+        except Exception:
+            pass
+            
+        # 2️⃣ TENTATIVA: Se falhar como Excel, lê como CSV tradicional (ponto e vírgula ou vírgula)
+        if df is None or df.shape[1] <= 1:
+            combinacoes = [
+                (';', 'utf-8-sig'),
+                (';', 'iso-8859-1'),
+                (',', 'utf-8'),
+                (';', 'utf-8'),
+                (',', 'iso-8859-1')
+            ]
+            for sep, enc in combinacoes:
+                try:
+                    uploaded_file.seek(0)
+                    temp_df = pd.read_csv(uploaded_file, sep=sep, encoding=enc, on_bad_lines='skip')
+                    if temp_df.shape[1] > 1:
+                        df = temp_df
+                        break
+                except Exception:
+                    continue
 
-        # Se passou por todos os testes e não conseguiu ler estruturado
-        if df is None:
-            st.error("❌ Não foi possível identificar a estrutura do CSV automaticamente. Verifique se a coluna de 'Data' existe no arquivo.")
+        # Validação final da estrutura
+        if df is None or 'Data' not in df.columns:
+            st.error("❌ Não foi possível ler o arquivo. Verifique se a planilha possui a coluna chamada 'Data'.")
         else:
-            # Força a conversão da coluna de data
-            df['Data'] = pd.to_datetime(df['Data'])
+            # Força a conversão da coluna de data removendo horas/fuso se houver
+            df['Data'] = pd.to_datetime(df['Data']).dt.tz_localize(None)
             
             # Data de referência (Hoje)
             today = pd.to_datetime(datetime.now().date())
@@ -75,7 +80,7 @@ if uploaded_file is not None:
                 if len(df_21) > 0:
                     payload_21 = df_21.to_dict(orient='records')
                     try:
-                        res_21 = requests.post(WEBHOOK_21_DIAS, headers={"Content-Type": "application/json"}, data=json.dumps(payload_21))
+                        res_21 = requests.post(WEBHOOK_21_DIAS, headers={"Content-Type": "application/json"}, data=json.dumps(payload_21, default=str))
                         if res_21.status_code in [200, 201]:
                             st.success(f"✅ {len(df_21)} contatos de exatos 21 dias enviados!")
                         else:
@@ -89,7 +94,7 @@ if uploaded_file is not None:
                 if len(df_28) > 0:
                     payload_28 = df_28.to_dict(orient='records')
                     try:
-                        res_28 = requests.post(WEBHOOK_28_DIAS, headers={"Content-Type": "application/json"}, data=json.dumps(payload_28))
+                        res_28 = requests.post(WEBHOOK_28_DIAS, headers={"Content-Type": "application/json"}, data=json.dumps(payload_28, default=str))
                         if res_28.status_code in [200, 201]:
                             st.success(f"✅ {len(df_28)} contatos de exatos 28 dias enviados!")
                         else:
